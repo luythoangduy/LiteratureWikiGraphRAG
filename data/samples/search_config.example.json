@@ -1,0 +1,14 @@
+{
+  "topic": "graph retrieval augmented generation for literature review",
+  "from_year": 2020,
+  "to_year": 2026,
+  "sort_mode": "balanced",
+  "target_min_papers": 15,
+  "target_max_papers": 20,
+  "min_citation_count": null,
+  "must_include_keywords": ["GraphRAG", "literature review"],
+  "exclude_keywords": ["patent"],
+  "paper_type": "all",
+  "open_access_only": false,
+  "created_at": "2026-05-31T00:00:00Z"
+}

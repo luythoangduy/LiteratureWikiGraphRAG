@@ -1,0 +1,20 @@
+[
+  {
+    "id": "sample-openalex-1",
+    "source": "openalex",
+    "title": "Sample paper candidate for GraphRAG literature discovery",
+    "authors": ["A. Researcher", "B. Scholar"],
+    "year": 2025,
+    "publication_date": "2025-06-01",
+    "venue": "Sample Conference",
+    "abstract": "This placeholder record documents the normalized PaperCandidate shape.",
+    "doi": "10.0000/sample",
+    "arxiv_id": null,
+    "url": "https://example.org/paper",
+    "pdf_url": null,
+    "citation_count": 42,
+    "open_access": true,
+    "fields_of_study": ["Computer Science", "Information Retrieval"],
+    "keywords": ["GraphRAG", "literature review", "concept graph"]
+  }
+]
