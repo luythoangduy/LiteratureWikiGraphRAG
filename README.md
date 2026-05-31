@@ -24,14 +24,88 @@ flowchart TD
   J --> K[Save narrowing decision history]
   K --> L[Apply selected focus to SearchConfig]
   L --> C
-  G -- No --> M[Save final candidate table]
-  M --> N[User approves final 15-20 papers]
-  N --> O[Extract concepts, claims, methods, datasets, metrics]
-  O --> P[Build keyword/concept graph]
-  P --> Q[Attach papers as evidence]
-  Q --> R[Run GraphRAG literature review assistant]
-  R --> S[Export review draft, graph, and evidence tables]
+  G -- No --> M[Save candidate table]
+  M --> N[User reviews include exclude decisions]
+  N --> O[Save approved 15-20 paper set]
+  O --> P[Ingest approved papers as evidence]
+  P --> Q[Extract concepts, claims, methods, datasets, metrics]
+  Q --> R[Build keyword/concept graph]
+  R --> S[Attach papers as evidence]
+  S --> T[Run GraphRAG literature review assistant]
+  T --> U[Export review draft, graph, and evidence tables]
 ```
+
+## Current Flow Gaps To Fix Next
+
+The project currently has a working search, narrowing, and ingestion scaffold, but the
+implementation still allows candidate discovery to jump into ingestion too early. These are
+the priority logic gaps:
+
+- `paper_candidates.json` is written directly from the displayed search results, including
+  broad result sets that have not been approved by the researcher.
+- Paper ingestion currently reads `paper_candidates.json`; it should only ingest an approved
+  paper set after include/exclude review.
+- The default search service only uses arXiv, so citation filters and most-cited ranking are
+  limited until OpenAlex or Semantic Scholar are enabled.
+- `min_citation_count` keeps candidates with unknown citation counts, which should be made
+  explicit in the UI or configurable.
+- LLM narrowing suggestions append `must_include_keywords` as strict AND filters, which can
+  over-narrow searches without a preview step.
+- The current embedding field uses a deterministic placeholder hash, not a semantic
+  embedding. It should be renamed or disabled until real embeddings are wired in.
+
+## Repair Plan
+
+### Phase 1: Candidate Approval Gate
+
+- [ ] Split runtime artifacts into:
+  - `paper_candidates.json` for the latest normalized search results.
+  - `approved_papers.json` for the researcher-approved final paper set.
+  - `excluded_papers.json` for rejected candidates and exclusion reasons.
+  - `paper_evidence.json` for ingestion output.
+- [ ] Prevent ingestion while the result set is still above `target_max_papers`.
+- [ ] Add a final review table with include/exclude controls once the narrowed result set is
+  within target range.
+- [ ] Save approved papers only after explicit user confirmation.
+- [ ] Change ingestion to read from `approved_papers.json` instead of `paper_candidates.json`.
+- [ ] Add tests that broad search results cannot be ingested before approval.
+
+### Phase 2: Search Sources And Filter Semantics
+
+- [ ] Add source selection in the Streamlit sidebar for arXiv, OpenAlex, and Semantic Scholar.
+- [ ] Update `build_default_search_service` so enabled connectors come from UI/config instead
+  of being hardcoded to arXiv only.
+- [ ] Clarify citation filtering behavior for unknown citation counts:
+  - keep unknown counts but label them clearly; or
+  - add a strict mode that excludes unknown counts.
+- [ ] Make open-access filtering source-aware by using `open_access`, `pdf_url`, and source
+  metadata consistently.
+- [ ] Update ranking explanations to call out when citation data is missing.
+
+### Phase 3: Narrowing Preview And History
+
+- [ ] Add a preview step before applying LLM narrowing suggestions.
+- [ ] Show a config diff for proposed updates before rerunning search.
+- [ ] Support softer keyword filtering, such as `must_include_any` and `must_include_all`,
+  instead of one strict `must_include_keywords` list.
+- [ ] Store richer narrowing history:
+  - user message;
+  - config before;
+  - config after;
+  - result count before;
+  - result count after;
+  - applied suggestion.
+- [ ] Reset narrowing chat/history when a new topic search starts.
+
+### Phase 4: GraphRAG-Ready Ingestion
+
+- [ ] Rename `hash_embedding` to `placeholder_embedding` or disable embedding generation by
+  default until real semantic embeddings are available.
+- [ ] Add a concept extraction stage that reads `paper_evidence.json` and writes
+  `concept_candidates.json`.
+- [ ] Build `concept_graph.json` from approved evidence, keeping papers as evidence rather
+  than primary graph nodes.
+- [ ] Add retrieval only after concept graph artifacts exist.
 
 ## Feature Build Tracker
 
@@ -102,7 +176,10 @@ flowchart LR
   Choices --> History[data outputs narrowing_history.json]
   Choices --> Config
   Broad -- No --> Table[Candidate table in Streamlit]
-  Table --> Outputs[data outputs paper_candidates.json]
+  Table --> Candidates[data outputs paper_candidates.json]
+  Candidates --> Review[Include exclude review]
+  Review --> Approved[data outputs approved_papers.json]
+  Approved --> Ingestion[data outputs paper_evidence.json]
   Arxiv --> Raw[data raw arXiv response]
 ```
 
@@ -140,6 +217,10 @@ sequenceDiagram
   else Within target count
     S->>J: Save paper_candidates.json
     S-->>R: Show candidate table
+    R->>S: Approve include exclude decisions
+    S->>J: Save approved_papers.json and excluded_papers.json
+    R->>S: Start ingestion
+    S->>J: Save paper_evidence.json
   end
 ```
 
@@ -158,16 +239,20 @@ Runtime data flow:
   counts are retained when available.
 - Results are ranked by newest-first, most-cited, or balanced review-set scoring.
 - Broad result sets are summarized by Gemini with heuristic fallback, then narrowed through
-  saved user decisions before the project proceeds to GraphRAG indexing.
+  saved user decisions before the project proceeds to paper approval.
 - Raw source responses are written to `data/raw` for debugging.
 - Normalized candidates are written to `data/outputs/paper_candidates.json`.
+- Researcher-approved candidates should be written to `data/outputs/approved_papers.json`.
+- Excluded candidates and reasons should be written to `data/outputs/excluded_papers.json`.
+- Ingestion output should be written to `data/outputs/paper_evidence.json` and should only
+  come from approved papers.
 - Narrowing choices are written to `data/outputs/narrowing_history.json`.
 
 Optional environment variables:
 
 ```dotenv
 GOOGLE_API_KEY=your_gemini_key
-GOOGLE_GEMINI_MODEL=gemini-flash-latest
+GOOGLE_GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=google/gemini-2.0-flash-001
 ```
@@ -217,7 +302,9 @@ Then enter a topic such as `idustrial anomaly detection, representation learning
 - `data/raw` contains source response JSON files;
 - `data/outputs/paper_candidates.json` contains normalized candidates.
 - broad searches show a Gemini-powered or heuristic narrowing report before GraphRAG;
-- selected narrowing choices are saved in `data/outputs/narrowing_history.json`.
+- selected narrowing choices are saved in `data/outputs/narrowing_history.json`;
+- narrowed results can be explicitly approved into `data/outputs/approved_papers.json`
+  before ingestion.
 
 ### 1. Search Intake Wizard
 
