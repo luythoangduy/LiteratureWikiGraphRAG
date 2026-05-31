@@ -2,6 +2,10 @@
 
 An LLM Wiki-style GraphRAG project for literature review. Instead of treating each paper as a graph node, the system builds a sparse concept graph where each node is a keyword, concept, method, dataset, metric, limitation, or research direction. Papers are stored as evidence attached to concept nodes and edges.
 
+# LiteratureWikiGraphRAG
+
+An LLM Wiki-style GraphRAG project for literature review. Instead of treating each paper as a graph node, the system builds a sparse concept graph where each node is a keyword, concept, method, dataset, metric, limitation, or research direction. Papers are stored as evidence attached to concept nodes and edges.
+
 This README is the project tracker. Future sessions should update the checkboxes as features are built, tested, and documented.
 
 ## Product Goal
@@ -13,10 +17,11 @@ Help a researcher start from a broad topic, narrow the search space to a high-qu
 ```mermaid
 flowchart TD
   A[User enters topic keyword] --> B[Set year range and search preferences]
-  B --> C[Search academic APIs]
-  C --> D[Normalize PaperCandidate records]
-  D --> E[Deduplicate by DOI arXiv ID and fuzzy title]
-  E --> F[Merge metadata and rank papers]
+  B --> C{Use Deep Research?}
+  C -- Yes --> DR[Gemini Deep Research Agent] --> F[Merge metadata and rank papers]
+  C -- No --> S[Standard arXiv API Search] --> D[Normalize PaperCandidate records]
+  D --> E[Deduplicate by DOI, arXiv ID, and fuzzy title]
+  E --> F
   F --> G{Results exceed target max?}
   G -- Yes --> H[Summarize abstracts with Gemini]
   H --> I[Cluster papers into broad research themes]
@@ -30,23 +35,15 @@ flowchart TD
   O --> P[Ingest approved papers as evidence]
   P --> Q[Extract concepts, claims, methods, datasets, metrics]
   Q --> R[Build keyword/concept graph]
-  R --> S[Attach papers as evidence]
-  S --> T[Run GraphRAG literature review assistant]
+  R --> S2[Attach papers as evidence]
+  S2 --> T[Run GraphRAG literature review assistant]
   T --> U[Export review draft, graph, and evidence tables]
 ```
 
 ## Current Flow Gaps To Fix Next
 
-The project currently has a working search, narrowing, and ingestion scaffold, but the
-implementation still allows candidate discovery to jump into ingestion too early. These are
-the priority logic gaps:
+The project currently has a working search, narrowing, and ingestion scaffold. The priority logic gaps to address are:
 
-- `paper_candidates.json` is written directly from the displayed search results, including
-  broad result sets that have not been approved by the researcher.
-- Paper ingestion currently reads `paper_candidates.json`; it should only ingest an approved
-  paper set after include/exclude review.
-- The default search service only uses arXiv, so citation filters and most-cited ranking are
-  limited until OpenAlex or Semantic Scholar are enabled.
 - `min_citation_count` keeps candidates with unknown citation counts, which should be made
   explicit in the UI or configurable.
 - LLM narrowing suggestions append `must_include_keywords` as strict AND filters, which can
@@ -58,21 +55,26 @@ the priority logic gaps:
 
 ### Phase 1: Candidate Approval Gate
 
-- [ ] Split runtime artifacts into:
+- [x] Split runtime artifacts into:
   - `paper_candidates.json` for the latest normalized search results.
   - `approved_papers.json` for the researcher-approved final paper set.
   - `excluded_papers.json` for rejected candidates and exclusion reasons.
   - `paper_evidence.json` for ingestion output.
-- [ ] Prevent ingestion while the result set is still above `target_max_papers`.
-- [ ] Add a final review table with include/exclude controls once the narrowed result set is
+- [x] Prevent ingestion while the result set is still above `target_max_papers`.
+- [x] Add a final review table with include/exclude controls once the narrowed result set is
   within target range.
-- [ ] Save approved papers only after explicit user confirmation.
-- [ ] Change ingestion to read from `approved_papers.json` instead of `paper_candidates.json`.
-- [ ] Add tests that broad search results cannot be ingested before approval.
+- [x] Save approved papers only after explicit user confirmation.
+- [x] Change ingestion to read from `approved_papers.json` instead of `paper_candidates.json`.
+- [x] Add tests that broad search results cannot be ingested before approval.
 
 ### Phase 2: Search Sources And Filter Semantics
 
-- [ ] Add source selection in the Streamlit sidebar for arXiv, OpenAlex, and Semantic Scholar.
+- [x] Integrate Gemini Deep Research via the Interactions API (`deep-research-preview-04-2026`).
+- [x] Stream research progress reasoning/thoughts in real-time to Streamlit using `st.status`.
+- [x] Display synthesized markdown research report with citations.
+- [x] Graceful fallback to arXiv API on failure or missing API key.
+- [x] Add unit tests for Deep Research parsing, prompt generation, and configuration.
+- [ ] Add source selection in the Streamlit sidebar for arXiv, OpenAlex, and Semantic Scholar (standard search fallback).
 - [ ] Update `build_default_search_service` so enabled connectors come from UI/config instead
   of being hardcoded to arXiv only.
 - [ ] Clarify citation filtering behavior for unknown citation counts:

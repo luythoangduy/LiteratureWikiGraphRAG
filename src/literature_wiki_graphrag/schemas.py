@@ -52,6 +52,51 @@ class PaperCandidate(BaseModel):
     ranking_reason: str | None = None
 
 
+class ApprovedPaper(BaseModel):
+    """A paper candidate that the researcher has explicitly included."""
+
+    candidate: PaperCandidate
+    approved_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ExcludedPaper(BaseModel):
+    """A paper candidate that the researcher has explicitly excluded."""
+
+    candidate: PaperCandidate
+    reason: str = ""
+    excluded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class PaperChunk(BaseModel):
+    id: str
+    paper_id: str
+    section: str | None = None
+    text: str
+    token_estimate: int
+    metadata: dict[str, object] = Field(default_factory=dict)
+    embedding: list[float] | None = None
+
+
+class PaperEvidence(BaseModel):
+    id: str
+    candidate_id: str
+    source: str
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: int | None = None
+    venue: str | None = None
+    abstract: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    url: HttpUrl | None = None
+    pdf_url: HttpUrl | None = None
+    bibtex: str | None = None
+    pdf_text: str | None = None
+    extraction_error: str | None = None
+    chunks: list[PaperChunk] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class ThemeSummary(BaseModel):
     label: str
     summary: str

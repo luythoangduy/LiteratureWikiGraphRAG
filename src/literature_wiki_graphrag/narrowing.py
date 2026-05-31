@@ -19,7 +19,7 @@ from literature_wiki_graphrag.schemas import (
 )
 from literature_wiki_graphrag.search import normalize_title
 
-DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -390,6 +390,106 @@ def apply_narrowing_suggestion(
                 current.append(str(keyword))
         updates["must_include_keywords"] = current
     return config.model_copy(update=updates)
+
+
+def format_narrowing_report_text(report: NarrowingReport) -> str:
+    lines = [
+        f"Result set: {report.result_count} papers. Target threshold: {report.threshold}.",
+        f"Summarizer: {report.summarizer}.",
+        "",
+        "Overview",
+        report.overview or "No overview available.",
+        "",
+        "Research themes",
+    ]
+    for index, theme in enumerate(report.themes, start=1):
+        titles = "; ".join(theme.representative_titles[:3]) or "No representative titles."
+        lines.extend(
+            [
+                f"{index}. {theme.label} ({len(theme.paper_ids)} papers)",
+                f"   Summary: {theme.summary}",
+                f"   Representative papers: {titles}",
+            ]
+        )
+
+    lines.extend(["", "Suggested narrowing options"])
+    for index, suggestion in enumerate(report.suggestions, start=1):
+        estimated = (
+            f" Estimated candidates: {suggestion.estimated_paper_count}."
+            if suggestion.estimated_paper_count is not None
+            else ""
+        )
+        lines.extend(
+            [
+                f"{index}. {suggestion.label}",
+                f"   Why: {suggestion.rationale}{estimated}",
+                f"   Config updates: {json.dumps(suggestion.config_updates, ensure_ascii=False)}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def chat_narrowing_suggestion(
+    user_message: str,
+    report: NarrowingReport,
+    config: SearchConfig,
+    *,
+    settings: Settings | None = None,
+) -> NarrowingSuggestion:
+    settings = settings or get_settings()
+    prompt = (
+        "You are helping a researcher narrow a literature search. The user will describe "
+        "which area they want to focus on. Return strict JSON with keys label, rationale, "
+        "config_updates, estimated_paper_count. config_updates may use from_year, to_year, "
+        "min_citation_count, must_include_keywords, exclude_keywords, paper_type, "
+        "open_access_only. Prefer simple keyword filters that can be rerun by the app.\n\n"
+        f"Current search config: {config.model_dump(mode='json')}\n\n"
+        f"Narrowing report:\n{format_narrowing_report_text(report)}\n\n"
+        f"User preference: {user_message}"
+    )
+
+    if settings.google_api_key:
+        client = genai.Client(api_key=settings.google_api_key)
+        model = settings.google_gemini_model or DEFAULT_GEMINI_MODEL
+        response = client.models.generate_content(model=model, contents=prompt)
+        payload = parse_json_object(response.text or "")
+    elif settings.openrouter_api_key:
+        headers = {
+            "Authorization": f"Bearer {settings.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:8501",
+            "X-Title": "LiteratureWikiGraphRAG",
+        }
+        payload_data = {
+            "model": settings.openrouter_model,
+            "messages": [
+                {"role": "system", "content": "Return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        with httpx.Client(timeout=60) as client:
+            response = client.post(
+                OPENROUTER_CHAT_COMPLETIONS_URL,
+                headers=headers,
+                json=payload_data,
+            )
+            response.raise_for_status()
+        payload = parse_json_object(response.json()["choices"][0]["message"]["content"])
+    else:
+        return NarrowingSuggestion(
+            label="Manual narrowing request",
+            rationale="No LLM key is configured, so the user message was converted to keywords.",
+            config_updates={"must_include_keywords": [user_message]},
+        )
+
+    return NarrowingSuggestion(
+        label=str(payload.get("label") or "LLM narrowing suggestion"),
+        rationale=str(payload.get("rationale") or ""),
+        config_updates=dict(payload.get("config_updates") or {}),
+        estimated_paper_count=payload.get("estimated_paper_count"),
+    )
 
 
 def save_narrowing_history(

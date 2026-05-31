@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
 
     google_api_key: str | None = Field(default=None, alias="GOOGLE_API_KEY")
-    google_gemini_model: str = Field(default="gemini-flash-latest", alias="GOOGLE_GEMINI_MODEL")
+    google_gemini_model: str = Field(default="gemini-2.5-flash", alias="GOOGLE_GEMINI_MODEL")
+    google_deep_research_model: str = Field(
+        default="deep-research-preview-04-2026",
+        alias="GOOGLE_DEEP_RESEARCH_MODEL",
+    )
     openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
     openrouter_model: str = Field(
         default="google/gemini-2.0-flash-001",
